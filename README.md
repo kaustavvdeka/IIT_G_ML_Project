@@ -160,15 +160,17 @@ streamlit run app/streamlit_app.py
 
 ## 🖥️ 8. Interactive Streamlit Web Application
 
-The interactive web dashboard includes 8 comprehensive sections:
+The interactive web dashboard includes 10 comprehensive sections:
 1. **📊 Dashboard**: High-level KPIs, athlete count, injury rate, and best CV scores.
 2. **📂 Dataset Explorer**: Interactive viewer for raw tables and feature parquets with athlete search.
-3. **👤 Athlete View**: Demographic profiles and longitudinal step/HR/sleep trends.
-4. **🔬 Feature Explorer**: Descriptive statistical summaries and distribution histograms.
-5. **🏆 Model Benchmark**: Complete leaderboard table and CV performance comparison charts.
-6. **🎯 Classification Analysis**: Confusion matrix, precision-recall metrics, and F1 threshold curves.
-7. **🌲 Feature Importance & SHAP**: Top 20 predictive features and explainability analysis.
-8. **🔮 Prediction Tool**: Live athlete injury probability estimator with explicit medical disclaimer.
+3. **👤 Athlete View**: Demographic profiles, longitudinal trend charts, Risk Speedometer, and interactive single-athlete SHAP Waterfall plots.
+4. **🏅 Team Risk Ranking**: Sortable live leaderboard prioritizing athletes by their current calculated injury risk and expected onset.
+5. **🎮 What-If Simulator**: Interactive sliders allowing coaches to tweak recent workload/sleep and instantly recalculate the athlete's future injury probability.
+6. **🔬 Feature Explorer**: Descriptive statistical summaries, distribution histograms, and an interactive Feature Correlation Matrix.
+7. **🏆 Model Benchmark**: Complete leaderboard table and CV performance comparison charts.
+8. **🎯 Classification Analysis**: Interactive Out-Of-Fold Confusion Matrix, precision-recall metrics, and F1 threshold curves.
+9. **🌲 Feature Importance**: Top 20 predictive features and explainability analysis.
+10. **🔮 Prediction Tool**: Live athlete injury probability estimator.
 
 ---
 

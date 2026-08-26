@@ -132,3 +132,83 @@ def plot_athlete_time_series(df_series: pd.DataFrame, value_col: str, title: str
     )
     fig.update_layout(height=300, yaxis_title=y_label, margin=dict(l=20, r=20, t=40, b=20))
     return fig
+
+
+def plot_risk_gauge(probability: float, threshold: float = 0.5) -> go.Figure:
+    """Plots a risk gauge for an individual athlete."""
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=probability * 100,
+        number={"suffix": "%", "valueformat": ".1f"},
+        title={'text': "Injury Risk Probability"},
+        gauge={
+            'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "white"},
+            'bar': {'color': "#ff5252" if probability >= threshold else "#00e676"},
+            'bgcolor': "rgba(0,0,0,0)",
+            'steps': [
+                {'range': [0, threshold * 100], 'color': "rgba(0, 230, 118, 0.3)"},
+                {'range': [threshold * 100, 100], 'color': "rgba(255, 82, 82, 0.3)"}],
+            'threshold': {
+                'line': {'color': "white", 'width': 4},
+                'thickness': 0.75,
+                'value': threshold * 100}
+        }
+    ))
+    fig.update_layout(height=300, margin=dict(l=20, r=20, t=40, b=20), template="plotly_dark")
+    return fig
+
+
+def plot_shap_waterfall_interactive(shap_dict: Dict[str, float]) -> go.Figure:
+    """Plots an interactive SHAP waterfall chart for a single athlete."""
+    if not shap_dict:
+        return go.Figure()
+        
+    # Sort by absolute impact
+    sorted_shap = sorted(shap_dict.items(), key=lambda x: abs(x[1]), reverse=True)[:10]
+    # Reverse to plot largest at the top/end
+    sorted_shap.reverse()
+    
+    features = [x[0] for x in sorted_shap]
+    values = [x[1] for x in sorted_shap]
+    
+    colors = ["#ff5252" if v > 0 else "#00e676" for v in values]
+    
+    fig = go.Figure(go.Bar(
+        x=values,
+        y=features,
+        orientation='h',
+        marker_color=colors,
+        text=[f"{v:+.3f}" for v in values],
+        textposition="outside"
+    ))
+    
+    fig.update_layout(
+        title="Top 10 Risk Factors (SHAP Contributions)",
+        xaxis_title="Impact on Risk Probability (Log-odds / Prob)",
+        yaxis_title="Feature",
+        height=400,
+        margin=dict(l=20, r=20, t=40, b=20),
+        template="plotly_dark",
+    )
+    return fig
+
+
+def plot_correlation_heatmap(df: pd.DataFrame) -> go.Figure:
+    """Plots an interactive correlation heatmap for numerical features."""
+    corr = df.select_dtypes(include=[np.number]).corr()
+    fig = go.Figure(data=go.Heatmap(
+        z=corr.values,
+        x=corr.columns,
+        y=corr.columns,
+        colorscale='RdBu',
+        zmin=-1, zmax=1,
+        text=np.round(corr.values, 2),
+        hoverinfo='text',
+    ))
+    fig.update_layout(
+        title="Feature Correlation Matrix",
+        height=700,
+        margin=dict(l=20, r=20, t=40, b=20),
+        template="plotly_dark"
+    )
+    return fig

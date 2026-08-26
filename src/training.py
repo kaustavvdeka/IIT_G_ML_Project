@@ -17,6 +17,7 @@ from src.config import BENCHMARK_RESULTS_PATH, FEATURE_IMPORTANCE_PATH, MODELS_D
 from src.evaluation import best_f1_threshold, calculate_classification_metrics, calculate_regression_metrics, get_group_kfold_splits
 from src.models import TabularPreprocessor, get_classification_models, get_regression_models
 from src.utils import LOGGER, save_json, set_seed
+from sklearn.calibration import CalibratedClassifierCV
 
 
 class Trainer:
@@ -86,8 +87,9 @@ class Trainer:
                 X_train_proc = preprocessor.fit_transform(X_train)
                 X_val_proc = preprocessor.transform(X_val)
 
-                # Clone model template
-                model = copy.deepcopy(model_template)
+                # Clone model template and wrap in CalibratedClassifierCV
+                base_model = copy.deepcopy(model_template)
+                model = CalibratedClassifierCV(estimator=base_model, method='sigmoid', cv=3)
                 model.fit(X_train_proc, y_train)
 
                 if hasattr(model, "predict_proba"):
@@ -289,11 +291,18 @@ class Trainer:
         feature_names = []
 
         for preprocessor, model in fold_models:
-            if hasattr(model, "feature_importances_"):
-                all_importances.append(model.feature_importances_)
+            # For CalibratedClassifierCV, feature importances are not directly exposed.
+            # We must extract the underlying estimator. We use the first fitted estimator.
+            if hasattr(model, "calibrated_estimators_"):
+                base_est = model.calibrated_estimators_[0].estimator
+            else:
+                base_est = model
+                
+            if hasattr(base_est, "feature_importances_"):
+                all_importances.append(base_est.feature_importances_)
                 feature_names = preprocessor.feature_names_out_
-            elif hasattr(model, "coef_"):
-                all_importances.append(np.abs(model.coef_.flatten()))
+            elif hasattr(base_est, "coef_"):
+                all_importances.append(np.abs(base_est.coef_.flatten()))
                 feature_names = preprocessor.feature_names_out_
 
         if not all_importances:

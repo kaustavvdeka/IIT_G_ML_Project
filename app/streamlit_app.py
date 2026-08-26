@@ -22,7 +22,11 @@ from app.components import (
     plot_feature_importance_chart,
     plot_model_comparison_bar,
     plot_threshold_curve,
+    plot_risk_gauge,
+    plot_shap_waterfall_interactive,
+    plot_correlation_heatmap,
 )
+from src.shap_analysis import get_single_athlete_shap
 from src.config import (
     BENCHMARK_RESULTS_PATH,
     DATA_DIR,
@@ -93,6 +97,8 @@ nav_page = st.sidebar.radio(
         "📊 Dashboard",
         "📂 Dataset Explorer",
         "👤 Athlete View",
+        "🏅 Team Risk Ranking",
+        "🎮 What-If Simulator",
         "🔬 Feature Explorer",
         "🏆 Model Benchmark",
         "🎯 Classification Analysis",
@@ -241,6 +247,127 @@ elif nav_page == "👤 Athlete View":
             fig_steps = plot_athlete_time_series(ath_act, "TotalSteps", "Daily Step Count", "Steps")
             st.plotly_chart(fig_steps, use_container_width=True)
 
+        st.markdown("---")
+        st.subheader("🔮 Injury Risk Evaluation")
+        predictor = Predictor()
+        
+        # We need to extract the base model since it is wrapped in CalibratedClassifierCV
+        try:
+            probs, binary_preds, thresh = predictor.predict_classification(pd.DataFrame([athlete_row]))
+            prob_val = float(probs[0])
+            is_injured = int(binary_preds[0])
+            
+            c_gauge, c_shap = st.columns([1, 2])
+            with c_gauge:
+                st.plotly_chart(plot_risk_gauge(prob_val, thresh), use_container_width=True)
+                if is_injured:
+                    onset = predictor.predict_regression(pd.DataFrame([athlete_row]), "onset", (1, 30))[0]
+                    rec = predictor.predict_regression(pd.DataFrame([athlete_row]), "recovery", (0, None))[0]
+                    st.error(f"**Expected Onset:** Day {int(np.round(onset))} | **Recovery:** {int(np.round(rec))} days")
+                else:
+                    st.success("**Healthy:** No immediate injury expected.")
+            
+            with c_shap:
+                cls_meta = load_benchmark_data().get("classification", {})
+                best_model = max(cls_meta.items(), key=lambda x: x[1].get("score", 0.0))[0] if cls_meta else None
+                if best_model and best_model != "Top3_Ensemble":
+                    fold_models = predictor._load_fold_models("classification", best_model)
+                    preprocessor, model = fold_models[0]
+                    
+                    exclude_cols = ["athlete_id", "obs_window_end", "injured_in_risk_window", "onset_day_offset", "recovery_duration"]
+                    feature_cols = [c for c in features_df.columns if c not in exclude_cols]
+                    X_proc = preprocessor.transform(pd.DataFrame([athlete_row])[feature_cols])
+                    
+                    shap_dict = get_single_athlete_shap(model, X_proc, preprocessor.feature_names_out_)
+                    if shap_dict:
+                        st.plotly_chart(plot_shap_waterfall_interactive(shap_dict), use_container_width=True)
+        except Exception as e:
+            st.warning(f"Could not generate risk evaluation. Error: {e}")
+
+
+# ==============================================================================
+# 3A. TEAM RISK RANKING TAB
+# ==============================================================================
+elif nav_page == "🏅 Team Risk Ranking":
+    st.title("🏅 Team Risk Ranking")
+    
+    if features_df.empty:
+        st.warning("Feature dataset not available.")
+    else:
+        st.markdown("Identify and prioritize high-risk athletes based on the latest 30-day monitoring data.")
+        
+        with st.spinner("Calculating live team risks..."):
+            predictor = Predictor()
+            probs, binary_preds, thresh = predictor.predict_classification(features_df)
+            
+            rank_df = features_df[["athlete_id", "sport", "position"]].copy() if "sport" in features_df.columns else features_df[["athlete_id"]].copy()
+            rank_df["Injury Risk %"] = np.round(probs * 100, 1)
+            rank_df["Status"] = ["🔴 High Risk" if p >= thresh else "🟢 Low Risk" for p in probs]
+            
+            # Predict onset for high risk
+            onset_preds = predictor.predict_regression(features_df, "onset", (1, 30))
+            rank_df["Est. Onset Day"] = [int(np.round(o)) if p >= thresh else "-" for o, p in zip(onset_preds, probs)]
+            
+            rank_df = rank_df.sort_values(by="Injury Risk %", ascending=False).reset_index(drop=True)
+            rank_df.index += 1
+            
+            st.dataframe(rank_df, use_container_width=True)
+
+
+# ==============================================================================
+# 3B. WHAT-IF SIMULATOR TAB
+# ==============================================================================
+elif nav_page == "🎮 What-If Simulator":
+    st.title("🎮 What-If Risk Simulator")
+    
+    if features_df.empty:
+        st.warning("Feature dataset not available.")
+    else:
+        st.markdown("Interactively adjust an athlete's acute metrics to simulate the effect on their injury risk.")
+        
+        athlete_list = features_df["athlete_id"].tolist()
+        selected_athlete = st.selectbox("Select Athlete ID to Simulate:", athlete_list, index=0)
+        
+        athlete_row = features_df[features_df["athlete_id"] == selected_athlete].copy()
+        
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            st.subheader("Modify Features")
+            new_workload = st.slider(
+                "Training Workload ACWR (7d vs 30d baseline)", 
+                min_value=0.0, max_value=3.0, 
+                value=float(athlete_row["training_load_change_7d_vs_30d"].iloc[0]) if "training_load_change_7d_vs_30d" in athlete_row.columns else 1.0, 
+                step=0.1
+            )
+            
+            new_sleep = st.slider(
+                "Sleep Duration Ratio (7d vs 30d baseline)", 
+                min_value=0.5, max_value=1.5, 
+                value=float(athlete_row["sleep_change_7d_vs_30d"].iloc[0]) if "sleep_change_7d_vs_30d" in athlete_row.columns else 1.0, 
+                step=0.05
+            )
+            
+            if "training_load_change_7d_vs_30d" in athlete_row.columns:
+                athlete_row["training_load_change_7d_vs_30d"] = new_workload
+            if "sleep_change_7d_vs_30d" in athlete_row.columns:
+                athlete_row["sleep_change_7d_vs_30d"] = new_sleep
+                
+        with c2:
+            st.subheader("Simulated Risk")
+            try:
+                predictor = Predictor()
+                orig_probs, _, thresh = predictor.predict_classification(features_df[features_df["athlete_id"] == selected_athlete])
+                sim_probs, sim_binary, _ = predictor.predict_classification(athlete_row)
+                
+                orig_val = float(orig_probs[0])
+                sim_val = float(sim_probs[0])
+                diff = sim_val - orig_val
+                
+                st.metric("Simulated Injury Risk", f"{sim_val * 100:.1f}%", delta=f"{diff * 100:+.1f}% vs Original", delta_color="inverse")
+                st.plotly_chart(plot_risk_gauge(sim_val, thresh), use_container_width=True)
+            except Exception as e:
+                st.warning(f"Simulator error: {e}")
+
 
 # ==============================================================================
 # 4. FEATURE EXPLORER TAB
@@ -285,6 +412,22 @@ elif nav_page == "🔬 Feature Explorer":
                 ],
             })
             st.table(stats_df)
+            
+        st.markdown("---")
+        st.markdown("### 🔗 Feature Correlation Heatmap")
+        
+        # Select subset of features for readability
+        corr_cols = st.multiselect(
+            "Select features to correlate:",
+            feature_cols,
+            default=feature_cols[:min(10, len(feature_cols))]
+        )
+        
+        if len(corr_cols) > 1:
+            fig_corr = plot_correlation_heatmap(features_df[corr_cols])
+            st.plotly_chart(fig_corr, use_container_width=True)
+        else:
+            st.info("Select at least 2 features to view the correlation heatmap.")
 
 
 # ==============================================================================

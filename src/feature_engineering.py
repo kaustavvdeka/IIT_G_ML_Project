@@ -171,6 +171,7 @@ def build_heart_rate_features(
     features = features.merge(f_7d, on="athlete_id", how="left")
 
     features["hr_change_7d_vs_30d"] = features["avg_hr_7d"] / (features["avg_hr_30d"] + 1e-5)
+    features["hr_cv_30d"] = features["std_hr_30d"] / (features["avg_hr_30d"] + 1e-5)
     return features
 
 
@@ -226,6 +227,7 @@ def build_sleep_features(
     features["sleep_change_7d_vs_30d"] = features["avg_sleep_minutes_7d"] / (features["avg_sleep_minutes_30d"] + 1e-5)
     features["sleep_efficiency_30d"] = features["avg_sleep_minutes_30d"] / (features["avg_time_in_bed_30d"] + 1e-5)
     features["sleep_variability_30d"] = features["std_sleep_minutes_30d"] / (features["avg_sleep_minutes_30d"] + 1e-5)
+    features["sleep_cv_30d"] = features["std_sleep_minutes_30d"] / (features["avg_sleep_minutes_30d"] + 1e-5)
     return features
 
 
@@ -291,7 +293,9 @@ def build_training_features(
         training_sessions_30d=("duration_minutes", "count"),
         training_minutes_30d=("duration_minutes", "sum"),
         training_load_30d=("training_load", "sum"),
+        std_training_load_30d=("training_load", "std"),
     ).reset_index()
+    f_30d["std_training_load_30d"] = f_30d["std_training_load_30d"].fillna(0)
 
     # Session type counts over 30d
     if type_col in tr_30d.columns:
@@ -335,8 +339,11 @@ def build_training_features(
     chronic_weekly_avg = (features["training_load_30d"] / 30.0) * 7.0
     features["training_load_change_7d_vs_30d"] = features["training_load_7d"] / (chronic_weekly_avg + 1e-5)
     features["training_load_change_7d_vs_previous_7d"] = features["training_load_7d"] / (features["training_load_prev_7d"] + 1e-5)
+    
+    # Athlete-specific baseline (Z-score of recent load against their own 30d variance)
+    features["training_load_zscore"] = (features["training_load_7d"] - chronic_weekly_avg) / (features["std_training_load_30d"] + 1e-5)
 
-    features = features.drop(columns=["training_load_prev_7d"], errors="ignore")
+    features = features.drop(columns=["training_load_prev_7d", "std_training_load_30d"], errors="ignore")
     return features
 
 

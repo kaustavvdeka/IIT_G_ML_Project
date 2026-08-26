@@ -67,3 +67,35 @@ def run_shap_analysis(
     except Exception as e:
         LOGGER.warning(f"SHAP analysis encountered an error ({e}) — proceeding without SHAP plot.")
         return None
+
+def get_single_athlete_shap(
+    model: Any,
+    X_single: pd.DataFrame,
+    feature_names: List[str],
+) -> Optional[Dict[str, float]]:
+    """
+    Computes SHAP values for a single athlete and returns a dictionary mapping
+    features to their SHAP contribution.
+    """
+    if not HAS_SHAP:
+        return None
+
+    try:
+        # Extract base estimator if wrapped in CalibratedClassifierCV
+        if hasattr(model, "calibrated_estimators_"):
+            model = model.calibrated_estimators_[0].estimator
+            
+        explainer = shap.TreeExplainer(model)
+        shap_values = explainer.shap_values(X_single)
+        
+        if isinstance(shap_values, list) and len(shap_values) == 2:
+            shap_vals = shap_values[1][0]
+        else:
+            shap_vals = shap_values[0]
+            
+        shap_dict = dict(zip(feature_names, shap_vals))
+        return shap_dict
+        
+    except Exception as e:
+        LOGGER.warning(f"Error computing single athlete SHAP: {e}")
+        return None
