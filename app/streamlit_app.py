@@ -85,7 +85,7 @@ oof_df = load_oof_predictions_data()
 
 
 # ==============================================================================
-# SIDEBAR NAVIGATION
+# SIDEBAR NAVIGATION & MODEL CONTROLS
 # ==============================================================================
 st.sidebar.title("🏃‍♂️ PLAYHACK ML")
 st.sidebar.markdown("**Sports Injury Prediction Pipeline**")
@@ -106,6 +106,44 @@ nav_page = st.sidebar.radio(
         "🔮 Prediction Tool",
     ],
 )
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("⚙️ Model & Threshold Settings")
+
+predictor = Predictor()
+available_cls_models = predictor.get_available_models("classification")
+cls_meta_all = benchmark_meta.get("classification", {})
+model_options = []
+if "Top3_Ensemble" in cls_meta_all:
+    model_options.append("Top3_Ensemble")
+for m in available_cls_models:
+    if m not in model_options:
+        model_options.append(m)
+
+if not model_options:
+    model_options = ["LightGBM"]
+
+active_model = st.sidebar.selectbox(
+    "Active Classifier",
+    model_options,
+    index=0,
+    help="Select the classification model for live risk scoring across all tabs."
+)
+
+default_optimal_thresh = float(cls_meta_all.get(active_model, {}).get("best_threshold", 0.43))
+override_thresh = st.sidebar.checkbox("Custom Risk Cutoff", value=False)
+if override_thresh:
+    risk_threshold = st.sidebar.slider(
+        "Injury Decision Cutoff",
+        min_value=0.05,
+        max_value=0.95,
+        value=default_optimal_thresh,
+        step=0.01,
+        help="Athletes with predicted probability above this threshold are classified as High Risk."
+    )
+else:
+    risk_threshold = default_optimal_thresh
+    st.sidebar.caption(f"🎯 Optimal F1 Cutoff: **{default_optimal_thresh * 100:.1f}%**")
 
 st.sidebar.markdown("---")
 st.sidebar.info(
@@ -255,17 +293,17 @@ elif nav_page == "👤 Athlete View":
 
         st.markdown("---")
         st.subheader("🔮 Injury Risk Evaluation")
-        predictor = Predictor()
         
-        # We need to extract the base model since it is wrapped in CalibratedClassifierCV
+        # Risk evaluation using selected model & cutoff
         try:
-            probs, binary_preds, thresh = predictor.predict_classification(pd.DataFrame([athlete_row]))
+            probs, binary_preds, _ = predictor.predict_classification(pd.DataFrame([athlete_row]), model_name=active_model)
             prob_val = float(probs[0])
-            is_injured = int(binary_preds[0])
+            is_injured = int(prob_val >= risk_threshold)
             
             c_gauge, c_shap = st.columns([1, 2])
             with c_gauge:
-                st.plotly_chart(plot_risk_gauge(prob_val, thresh), use_container_width=True)
+                st.caption(f"Model: **{active_model}** | Cutoff: **{risk_threshold * 100:.1f}%**")
+                st.plotly_chart(plot_risk_gauge(prob_val, risk_threshold), use_container_width=True)
                 if is_injured:
                     onset = predictor.predict_regression(pd.DataFrame([athlete_row]), "onset", (1, 30))[0]
                     rec = predictor.predict_regression(pd.DataFrame([athlete_row]), "recovery", (0, None))[0]
@@ -276,10 +314,14 @@ elif nav_page == "👤 Athlete View":
             with c_shap:
                 cls_meta = load_benchmark_data().get("classification", {})
                 avail_cls = predictor.get_available_models("classification")
-                # Filter to available models that are not ensemble
-                candidates = [m for m in avail_cls if m != "Top3_Ensemble"]
-                if candidates:
-                    best_model = max(candidates, key=lambda x: cls_meta.get(x, {}).get("score", 0.0))
+                # Pick active model for SHAP if single tree model, else highest scoring single
+                if active_model in avail_cls and active_model != "Top3_Ensemble":
+                    best_model = active_model
+                else:
+                    candidates = [m for m in avail_cls if m != "Top3_Ensemble"]
+                    best_model = max(candidates, key=lambda x: cls_meta.get(x, {}).get("score", 0.0)) if candidates else None
+                
+                if best_model:
                     fold_models = predictor._load_fold_models("classification", best_model)
                     preprocessor, model = fold_models[0]
                     
@@ -308,16 +350,21 @@ elif nav_page == "🏅 Team Risk Ranking":
         st.markdown("Identify and prioritize high-risk athletes based on the latest 30-day monitoring data.")
         
         with st.spinner("Calculating live team risks..."):
-            predictor = Predictor()
-            probs, binary_preds, thresh = predictor.predict_classification(features_df)
+            probs, binary_preds, _ = predictor.predict_classification(features_df, model_name=active_model)
+            
+            k1, k2, k3 = st.columns(3)
+            high_risk_mask = probs >= risk_threshold
+            k1.metric("Active Model", active_model)
+            k2.metric("Decision Cutoff", f"{risk_threshold * 100:.1f}%")
+            k3.metric("High-Risk Count", f"{high_risk_mask.sum():,} / {len(probs):,} ({high_risk_mask.mean() * 100:.1f}%)")
             
             rank_df = features_df[["athlete_id", "sport", "position"]].copy() if "sport" in features_df.columns else features_df[["athlete_id"]].copy()
             rank_df["Injury Risk %"] = np.round(probs * 100, 1)
-            rank_df["Status"] = ["🔴 High Risk" if p >= thresh else "🟢 Low Risk" for p in probs]
+            rank_df["Status"] = ["🔴 High Risk" if p >= risk_threshold else "🟢 Low Risk" for p in probs]
             
             # Predict onset for high risk
             onset_preds = predictor.predict_regression(features_df, "onset", (1, 30))
-            rank_df["Est. Onset Day"] = [int(np.round(o)) if p >= thresh else "-" for o, p in zip(onset_preds, probs)]
+            rank_df["Est. Onset Day"] = [int(np.round(o)) if p >= risk_threshold else "-" for o, p in zip(onset_preds, probs)]
             
             rank_df = rank_df.sort_values(by="Injury Risk %", ascending=False).reset_index(drop=True)
             rank_df.index += 1
@@ -366,16 +413,16 @@ elif nav_page == "🎮 What-If Simulator":
         with c2:
             st.subheader("Simulated Risk")
             try:
-                predictor = Predictor()
-                orig_probs, _, thresh = predictor.predict_classification(features_df[features_df["athlete_id"] == selected_athlete])
-                sim_probs, sim_binary, _ = predictor.predict_classification(athlete_row)
+                orig_probs, _, _ = predictor.predict_classification(features_df[features_df["athlete_id"] == selected_athlete], model_name=active_model)
+                sim_probs, _, _ = predictor.predict_classification(athlete_row, model_name=active_model)
                 
                 orig_val = float(orig_probs[0])
                 sim_val = float(sim_probs[0])
                 diff = sim_val - orig_val
                 
+                st.caption(f"Model: **{active_model}** | Decision Cutoff: **{risk_threshold * 100:.1f}%**")
                 st.metric("Simulated Injury Risk", f"{sim_val * 100:.1f}%", delta=f"{diff * 100:+.1f}% vs Original", delta_color="inverse")
-                st.plotly_chart(plot_risk_gauge(sim_val, thresh), use_container_width=True)
+                st.plotly_chart(plot_risk_gauge(sim_val, risk_threshold), use_container_width=True)
             except Exception as e:
                 st.warning(f"Simulator error: {e}")
 
@@ -538,19 +585,19 @@ elif nav_page == "🔮 Prediction Tool":
         ath_data = features_df[features_df["athlete_id"] == sel_id]
 
         if st.button("🚀 Run Risk Evaluation"):
-            predictor = Predictor()
-            probs, binary_preds, thresh = predictor.predict_classification(ath_data)
+            probs, binary_preds, _ = predictor.predict_classification(ath_data, model_name=active_model)
             onset_pred = predictor.predict_regression(ath_data, "onset", clip_bounds=(1.0, 30.0))[0]
             rec_pred = predictor.predict_regression(ath_data, "recovery", clip_bounds=(0.0, None))[0]
 
             prob_val = float(probs[0])
-            is_injured = int(binary_preds[0])
+            is_injured = int(prob_val >= risk_threshold)
 
             st.markdown("---")
             st.subheader("📋 Evaluation Results")
+            st.caption(f"Evaluated with **{active_model}** | High-Risk Decision Cutoff: **{risk_threshold * 100:.1f}%**")
 
             c1, c2, c3 = st.columns(3)
-            risk_tier = "🔴 HIGH RISK" if prob_val >= thresh else "🟢 LOW RISK"
+            risk_tier = "🔴 HIGH RISK" if is_injured else "🟢 LOW RISK"
             c1.metric("Predicted Injury Risk", f"{prob_val * 100:.1f}%", delta=risk_tier)
             c2.metric("Expected Onset Day", f"Day {int(np.round(onset_pred))}" if is_injured else "N/A (Healthy)")
             c3.metric("Expected Recovery Duration", f"{int(np.round(rec_pred))} days" if is_injured else "N/A (Healthy)")
