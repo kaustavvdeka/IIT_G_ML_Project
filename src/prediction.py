@@ -29,6 +29,17 @@ class Predictor:
             return load_json(BENCHMARK_RESULTS_PATH)
         return {}
 
+    def get_available_models(self, task: str) -> List[str]:
+        """Returns the list of available model names stored on disk for a given task."""
+        task_dir = os.path.join(self.models_dir, task)
+        if not os.path.exists(task_dir):
+            return []
+        return [
+            os.path.splitext(f)[0]
+            for f in os.listdir(task_dir)
+            if f.endswith(".pkl")
+        ]
+
     def _load_fold_models(self, task: str, model_name: str) -> List[Tuple[Any, Any]]:
         path = os.path.join(self.models_dir, task, f"{model_name}.pkl")
         if not os.path.exists(path):
@@ -45,29 +56,50 @@ class Predictor:
         Generates classification probabilities and thresholded binary predictions.
         """
         cls_meta = self.benchmark_meta.get("classification", {})
+        avail_models = self.get_available_models("classification")
+
+        if not avail_models:
+            raise FileNotFoundError(f"No trained classification models found in {os.path.join(self.models_dir, 'classification')}")
 
         if model_name is None:
-            # Pick best model from benchmark
-            if "Top3_Ensemble" in cls_meta and cls_meta["Top3_Ensemble"]["score"] >= max(
-                [v["score"] for k, v in cls_meta.items() if k != "Top3_Ensemble"] + [0]
-            ):
-                model_name = "Top3_Ensemble"
-            elif cls_meta:
-                model_name = max(cls_meta.items(), key=lambda x: x[1]["score"])[0]
-            else:
-                model_name = "LightGBM"
+            # Check if Top3_Ensemble is applicable
+            top3_ensemble_meta = cls_meta.get("Top3_Ensemble")
+            if top3_ensemble_meta:
+                ensemble_models = top3_ensemble_meta.get("models_in_ensemble", [])
+                # Check if at least 2 models in the ensemble are available on disk
+                avail_in_ensemble = [m for m in ensemble_models if m in avail_models]
+                if len(avail_in_ensemble) >= 2 and top3_ensemble_meta.get("score", 0) >= max(
+                    [v.get("score", 0) for k, v in cls_meta.items() if k != "Top3_Ensemble" and k in avail_models] + [0]
+                ):
+                    model_name = "Top3_Ensemble"
+
+            if model_name is None:
+                # Pick the highest scoring available single classifier
+                scored_available = {k: v for k, v in cls_meta.items() if k in avail_models and k != "Top3_Ensemble"}
+                if scored_available:
+                    model_name = max(scored_available.items(), key=lambda x: x[1].get("score", 0.0))[0]
+                else:
+                    model_name = "LightGBM" if "LightGBM" in avail_models else avail_models[0]
 
         LOGGER.info(f"Using classification model: '{model_name}'")
 
         if model_name == "Top3_Ensemble":
             top3_names = cls_meta.get("Top3_Ensemble", {}).get("models_in_ensemble", ["LightGBM", "XGBoost", "RandomForest"])
+            # Filter to models available on disk
+            active_names = [m for m in top3_names if m in avail_models]
+            if not active_names:
+                active_names = avail_models[:min(3, len(avail_models))]
+
             all_ens_probs = []
-            for m_name in top3_names:
+            for m_name in active_names:
                 m_probs = self._predict_single_classifier(X_df, m_name)
                 all_ens_probs.append(m_probs)
             probs = np.mean(all_ens_probs, axis=0)
             threshold = cls_meta.get("Top3_Ensemble", {}).get("best_threshold", 0.5)
         else:
+            if model_name not in avail_models:
+                LOGGER.warning(f"Classification model '{model_name}' not found on disk. Falling back to '{avail_models[0]}'.")
+                model_name = avail_models[0]
             probs = self._predict_single_classifier(X_df, model_name)
             threshold = cls_meta.get(model_name, {}).get("best_threshold", 0.5)
 
@@ -104,11 +136,20 @@ class Predictor:
         Generates regression predictions averaged over all 5 folds.
         """
         task_meta = self.benchmark_meta.get(task, {})
+        avail_models = self.get_available_models(task)
+
+        if not avail_models:
+            raise FileNotFoundError(f"No trained {task} regression models found in {os.path.join(self.models_dir, task)}")
+
         if model_name is None:
-            if task_meta:
-                model_name = min(task_meta.items(), key=lambda x: x[1]["score"])[0]
+            scored_available = {k: v for k, v in task_meta.items() if k in avail_models}
+            if scored_available:
+                model_name = min(scored_available.items(), key=lambda x: x[1].get("score", 999.0))[0]
             else:
-                model_name = "LightGBM"
+                model_name = "LightGBM" if "LightGBM" in avail_models else avail_models[0]
+        elif model_name not in avail_models:
+            LOGGER.warning(f"{task} regression model '{model_name}' not found on disk. Falling back to '{avail_models[0]}'.")
+            model_name = avail_models[0]
 
         LOGGER.info(f"Using {task} regression model: '{model_name}'")
         fold_models = self._load_fold_models(task, model_name)

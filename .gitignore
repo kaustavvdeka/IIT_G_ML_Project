@@ -77,12 +77,11 @@ Thumbs.db
 # Streamlit local state
 .streamlit/
 
-# Datasets & Large Data Files
+# Datasets & Large Data Files (Keep raw datasets ignored, allow processed artifacts)
 Dataset/
 data/*.csv
 data/Test data/
-*.parquet
-outputs/models/
+
 
 # Archive files
 *.zip

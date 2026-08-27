@@ -269,8 +269,11 @@ elif nav_page == "👤 Athlete View":
             
             with c_shap:
                 cls_meta = load_benchmark_data().get("classification", {})
-                best_model = max(cls_meta.items(), key=lambda x: x[1].get("score", 0.0))[0] if cls_meta else None
-                if best_model and best_model != "Top3_Ensemble":
+                avail_cls = predictor.get_available_models("classification")
+                # Filter to available models that are not ensemble
+                candidates = [m for m in avail_cls if m != "Top3_Ensemble"]
+                if candidates:
+                    best_model = max(candidates, key=lambda x: cls_meta.get(x, {}).get("score", 0.0))
                     fold_models = predictor._load_fold_models("classification", best_model)
                     preprocessor, model = fold_models[0]
                     
