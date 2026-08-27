@@ -74,8 +74,10 @@ cover/
 ehthumbs.db
 Thumbs.db
 
-# Streamlit local state
-.streamlit/
+# Streamlit local state & secrets
+.streamlit/secrets.toml
+.streamlit/*.local*
+
 
 # Datasets & Large Data Files (Keep raw datasets ignored, allow processed artifacts)
 Dataset/
