@@ -15,6 +15,18 @@ from src.config import BENCHMARK_RESULTS_PATH, MODELS_DIR, SUBMISSION_PATH
 from src.utils import LOGGER, load_json
 
 
+def _safe_transform(preprocessor: Any, X: pd.DataFrame) -> np.ndarray:
+    """Defensively transforms features, repairing any unpickled scikit-learn attribute differences."""
+    if hasattr(preprocessor, "num_imputer"):
+        imputer = preprocessor.num_imputer
+        if hasattr(imputer, "statistics_"):
+            if not hasattr(imputer, "_fill_dtype"):
+                imputer._fill_dtype = imputer.statistics_.dtype
+            if not hasattr(imputer, "_fit_dtype"):
+                imputer._fit_dtype = imputer.statistics_.dtype
+    return preprocessor.transform(X)
+
+
 class Predictor:
     """
     Handles inference using trained fold models or ensembles.
@@ -115,7 +127,7 @@ class Predictor:
         X = X_df[feature_cols]
 
         for preprocessor, model in fold_models:
-            X_proc = preprocessor.transform(X)
+            X_proc = _safe_transform(preprocessor, X)
             if hasattr(model, "predict_proba"):
                 p = model.predict_proba(X_proc)[:, 1]
             else:
@@ -162,7 +174,7 @@ class Predictor:
         min_val, max_val = clip_bounds
 
         for preprocessor, model in fold_models:
-            X_proc = preprocessor.transform(X)
+            X_proc = _safe_transform(preprocessor, X)
             preds = model.predict(X_proc)
             if max_val is not None:
                 preds = np.clip(preds, min_val, max_val)

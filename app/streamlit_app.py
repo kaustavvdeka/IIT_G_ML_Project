@@ -193,18 +193,21 @@ elif nav_page == "📂 Dataset Explorer":
 
     else:
         # Load raw sample
-        loader = RawDataLoader(DATA_DIR)
-        table_map = {
-            "Daily Activity": loader.load_daily_activity,
-            "Sleep Records": loader.load_sleep_day,
-            "Training Sessions": loader.load_training_sessions,
-            "Athlete Metadata": loader.load_athlete_metadata,
-            "Weight Logs": loader.load_weight_logs,
-            "Training Labels": loader.load_train_labels,
-        }
-        df_raw = table_map[dataset_choice]()
-        st.write(f"**Shape:** {df_raw.shape[0]} rows × {df_raw.shape[1]} columns")
-        st.dataframe(df_raw.head(100), use_container_width=True)
+        try:
+            loader = RawDataLoader(DATA_DIR)
+            table_map = {
+                "Daily Activity": loader.load_daily_activity,
+                "Sleep Records": loader.load_sleep_day,
+                "Training Sessions": loader.load_training_sessions,
+                "Athlete Metadata": loader.load_athlete_metadata,
+                "Weight Logs": loader.load_weight_logs,
+                "Training Labels": loader.load_train_labels,
+            }
+            df_raw = table_map[dataset_choice]()
+            st.write(f"**Shape:** {df_raw.shape[0]} rows × {df_raw.shape[1]} columns")
+            st.dataframe(df_raw.head(100), use_container_width=True)
+        except Exception:
+            st.info(f"Raw '{dataset_choice}' table is not bundled in cloud deployment. Please inspect the precomputed 'Feature Dataset (features.parquet)' above.")
 
 
 # ==============================================================================
@@ -237,15 +240,18 @@ elif nav_page == "👤 Athlete View":
         m3.metric("Sleep Ratio", f"{athlete_row.get('sleep_change_7d_vs_30d', 1.0):.2f}x")
         m4.metric("Heart Rate Ratio", f"{athlete_row.get('hr_change_7d_vs_30d', 1.0):.2f}x")
 
-        # Load raw activity for time-series charts
-        loader = RawDataLoader(DATA_DIR)
-        raw_act = loader.load_daily_activity()
-        ath_act = raw_act[raw_act["athlete_id"] == selected_athlete].sort_values("date")
+        # Load raw activity for time-series charts (if available)
+        try:
+            loader = RawDataLoader(DATA_DIR)
+            raw_act = loader.load_daily_activity()
+            ath_act = raw_act[raw_act["athlete_id"] == selected_athlete].sort_values("date")
 
-        if not ath_act.empty:
-            st.markdown("### 🏃‍♂️ Daily Steps & Calories Over Time")
-            fig_steps = plot_athlete_time_series(ath_act, "TotalSteps", "Daily Step Count", "Steps")
-            st.plotly_chart(fig_steps, use_container_width=True)
+            if not ath_act.empty:
+                st.markdown("### 🏃‍♂️ Daily Steps & Calories Over Time")
+                fig_steps = plot_athlete_time_series(ath_act, "TotalSteps", "Daily Step Count", "Steps")
+                st.plotly_chart(fig_steps, use_container_width=True)
+        except Exception:
+            pass  # Raw activity CSV is optional in cloud deployment
 
         st.markdown("---")
         st.subheader("🔮 Injury Risk Evaluation")
@@ -279,7 +285,9 @@ elif nav_page == "👤 Athlete View":
                     
                     exclude_cols = ["athlete_id", "obs_window_end", "injured_in_risk_window", "onset_day_offset", "recovery_duration"]
                     feature_cols = [c for c in features_df.columns if c not in exclude_cols]
-                    X_proc = preprocessor.transform(pd.DataFrame([athlete_row])[feature_cols])
+                    
+                    from src.prediction import _safe_transform
+                    X_proc = _safe_transform(preprocessor, pd.DataFrame([athlete_row])[feature_cols])
                     
                     shap_dict = get_single_athlete_shap(model, X_proc, preprocessor.feature_names_out_)
                     if shap_dict:

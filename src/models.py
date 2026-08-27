@@ -85,6 +85,11 @@ class TabularPreprocessor:
     def transform(self, X: pd.DataFrame) -> np.ndarray:
         num_arr = np.empty((len(X), 0))
         if self.num_cols:
+            if hasattr(self.num_imputer, "statistics_"):
+                if not hasattr(self.num_imputer, "_fill_dtype"):
+                    self.num_imputer._fill_dtype = self.num_imputer.statistics_.dtype
+                if not hasattr(self.num_imputer, "_fit_dtype"):
+                    self.num_imputer._fit_dtype = self.num_imputer.statistics_.dtype
             num_arr = self.num_imputer.transform(X[self.num_cols])
             if self.scaler:
                 num_arr = self.scaler.transform(num_arr)
