@@ -48,12 +48,9 @@ def main():
     LOGGER.info(f"Output path: {args.out}")
     LOGGER.info("=" * 70)
 
-    # Fallback to Dataset folder if data directory is empty or not existing
     data_dir = args.data_dir
-    if not os.path.exists(data_dir) or not os.listdir(data_dir):
-        if os.path.exists("Dataset"):
-            LOGGER.warning(f"'{data_dir}' not found or empty. Falling back to 'Dataset' directory.")
-            data_dir = "Dataset"
+    if not os.path.exists(data_dir):
+        raise FileNotFoundError(f"Data directory '{data_dir}' not found.")
 
     # [1-4/8] Load Raw Data
     LOGGER.info("[1/8] Ingesting and standardizing raw CSV datasets...")
