@@ -89,7 +89,7 @@ class Trainer:
 
                 # Clone model template and wrap in CalibratedClassifierCV
                 base_model = copy.deepcopy(model_template)
-                model = CalibratedClassifierCV(estimator=base_model, method='sigmoid', cv=3)
+                model = CalibratedClassifierCV(estimator=base_model, method='sigmoid', cv=3, n_jobs=1)
                 model.fit(X_train_proc, y_train)
 
                 if hasattr(model, "predict_proba"):

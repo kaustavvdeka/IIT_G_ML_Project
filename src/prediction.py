@@ -11,8 +11,24 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+import io
+import sys
 from src.config import BENCHMARK_RESULTS_PATH, MODELS_DIR, SUBMISSION_PATH
+from src.models import TabularPreprocessor
 from src.utils import LOGGER, load_json
+
+# Alias into __main__ for legacy unpickling compatibility across Streamlit and CLI
+if "__main__" in sys.modules:
+    setattr(sys.modules["__main__"], "TabularPreprocessor", TabularPreprocessor)
+
+
+class _RobustUnpickler(pickle.Unpickler):
+    """Custom unpickler that safely resolves TabularPreprocessor regardless of originating module namespace."""
+    def find_class(self, module, name):
+        if name == "TabularPreprocessor":
+            from src.models import TabularPreprocessor
+            return TabularPreprocessor
+        return super().find_class(module, name)
 
 
 def _safe_transform(preprocessor: Any, X: pd.DataFrame) -> np.ndarray:
@@ -57,7 +73,7 @@ class Predictor:
         if not os.path.exists(path):
             raise FileNotFoundError(f"Model file not found at {path}")
         with open(path, "rb") as f:
-            return pickle.load(f)
+            return _RobustUnpickler(f).load()
 
     def predict_classification(
         self,

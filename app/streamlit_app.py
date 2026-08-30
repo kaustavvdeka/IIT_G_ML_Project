@@ -35,6 +35,7 @@ from src.config import (
     PREDICTIONS_PATH,
 )
 from src.data_loader import RawDataLoader
+from src.models import TabularPreprocessor
 from src.prediction import Predictor
 from src.utils import load_json
 

@@ -2342,6 +2342,8 @@
       "best_threshold": 0.55,
       "precision": 0.941,
       "recall": 0.4857,
+      "accuracy": 0.8093,
+      "roc_auc": 0.7548,
       "models_in_ensemble": [
         "LightGBM",
         "XGBoost",

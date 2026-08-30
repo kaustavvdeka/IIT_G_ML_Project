@@ -130,6 +130,7 @@ def get_classification_models(random_state: int = 42) -> Dict[str, Any]:
             colsample_bytree=0.8,
             random_state=random_state,
             eval_metric="logloss",
+            n_jobs=1,
         )
 
     if HAS_LGB:
@@ -141,6 +142,7 @@ def get_classification_models(random_state: int = 42) -> Dict[str, Any]:
             colsample_bytree=0.8,
             random_state=random_state,
             verbose=-1,
+            n_jobs=1,
         )
 
     if HAS_CAT:
@@ -150,6 +152,7 @@ def get_classification_models(random_state: int = 42) -> Dict[str, Any]:
             learning_rate=0.05,
             random_seed=random_state,
             verbose=False,
+            thread_count=1,
         )
 
     # Tier 2: Bagging & Ensembles
@@ -158,7 +161,7 @@ def get_classification_models(random_state: int = 42) -> Dict[str, Any]:
         max_depth=6,
         min_samples_split=5,
         random_state=random_state,
-        n_jobs=-1,
+        n_jobs=1,
     )
 
     models["ExtraTrees"] = ExtraTreesClassifier(
@@ -166,7 +169,7 @@ def get_classification_models(random_state: int = 42) -> Dict[str, Any]:
         max_depth=6,
         min_samples_split=5,
         random_state=random_state,
-        n_jobs=-1,
+        n_jobs=1,
     )
 
     models["HistGradientBoosting"] = HistGradientBoostingClassifier(
@@ -181,6 +184,7 @@ def get_classification_models(random_state: int = 42) -> Dict[str, Any]:
         C=0.5,
         max_iter=500,
         random_state=random_state,
+        n_jobs=1,
     )
 
     return models
@@ -202,6 +206,7 @@ def get_regression_models(random_state: int = 42) -> Dict[str, Any]:
             learning_rate=0.05,
             subsample=0.8,
             random_state=random_state,
+            n_jobs=1,
         )
 
     if HAS_LGB:
@@ -212,6 +217,7 @@ def get_regression_models(random_state: int = 42) -> Dict[str, Any]:
             subsample=0.8,
             random_state=random_state,
             verbose=-1,
+            n_jobs=1,
         )
 
     if HAS_CAT:
@@ -221,20 +227,21 @@ def get_regression_models(random_state: int = 42) -> Dict[str, Any]:
             learning_rate=0.05,
             random_seed=random_state,
             verbose=False,
+            thread_count=1,
         )
 
     models["RandomForest"] = RandomForestRegressor(
         n_estimators=100,
         max_depth=5,
         random_state=random_state,
-        n_jobs=-1,
+        n_jobs=1,
     )
 
     models["ExtraTrees"] = ExtraTreesRegressor(
         n_estimators=100,
         max_depth=5,
         random_state=random_state,
-        n_jobs=-1,
+        n_jobs=1,
     )
 
     models["HistGradientBoosting"] = HistGradientBoostingRegressor(
